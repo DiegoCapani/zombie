@@ -252,7 +252,7 @@
 
     <!-- Diario di Bordo -->
     <div id="log-panel">
-        <div class="log-entry log-system">SISTEMA: Controllo integrità attivo. Kit di riparazione utilizzabile solo in caso di danni reali.</div>
+        <div class="log-entry log-system">SISTEMA: Meccanica di raccolta idrica differenziata (Piovana/Condensa) attiva.</div>
     </div>
 
     <!-- Pannello di Controllo Azioni -->
@@ -260,7 +260,7 @@
         <button id="btn-eat" onclick="game.actionEat()">Mangia Razione (-1 Cibo)</button>
         <button id="btn-drink" onclick="game.actionDrink()">Bevi Razione (-1 Acqua)</button>
         <button id="btn-fish" onclick="game.actionFish()">Cala la Lenza (Pesca)</button>
-        <button id="btn-water" onclick="game.actionCollectWater()">Raccogli Piovana</button>
+        <button id="btn-water" onclick="game.actionCollectWater()">Raccogli Acqua</button>
         <button id="btn-repair" onclick="game.actionUseKit()">Rattoppa Gonfiabile</button>
         <button id="btn-signal" onclick="game.actionSignal()">Spara Razzo</button>
     </div>
@@ -385,7 +385,7 @@ class IdleRealTimeSurvival {
         if (Math.random() < 0.02) {
             let disponibili = Object.keys(this.weatherTypes);
             if (this.gameState.phase === 'SERA' || this.gameState.phase === 'NOTTE') {
-                disponibly = disponibili.filter(key => key !== 'torrido');
+                disponibili = disponibili.filter(key => key !== 'torrido');
             }
             const vecchioMeteo = this.gameState.currentWeather;
             const nuovoMeteo = disponibili[Math.floor(Math.random() * disponibili.length)];
@@ -529,25 +529,49 @@ class IdleRealTimeSurvival {
         this.updateUI();
     }
 
+    // --- NUOVA LOGICA: MECCANICA DI RACCOLTA ACQUA PIOVANA VS CONDENSA ---
     actionCollectWater() {
         if(this.gameState.isFloatingInWater) return;
         if (this.gameState.inventory.waterRations >= 20) {
             this.log("Contenitori d'acqua pieni.", "log-system");
             return;
         }
-        this.gameState.foodLevel = Math.max(0, this.gameState.foodLevel - 2);
-        this.gameState.waterLevel = Math.max(0, this.gameState.waterLevel - 3);
 
-        if (Math.random() < this.weatherTypes[this.gameState.currentWeather].rainChance) {
-            this.gameState.inventory.waterRations++;
-            this.log("💧 Raccolta acqua piovana riuscita.", "log-good");
-        } else {
-            this.log("Tentativo a vuoto, non piove abbastanza.", "log-system");
+        const meteoCorrente = this.gameState.currentWeather;
+
+        // Caso 1: Meteo con pioggia (Raccolta Piovana)
+        if (meteoCorrente === 'pioggia' || meteoCorrente === 'tempesta') {
+            // Consumo energetico ridotto al minimo
+            this.gameState.foodLevel = Math.max(0, this.gameState.foodLevel - 1);
+            this.gameState.waterLevel = Math.max(0, this.gameState.waterLevel - 1);
+
+            // Probabilità di successo molto alta
+            let chancePiovana = (meteoCorrente === 'tempesta') ? 0.90 : 0.80;
+
+            if (Math.random() < chancePiovana) {
+                this.gameState.inventory.waterRations++;
+                this.log("💧 Raccolta ACQUA PIOVANA riuscita! I teli sono bagnati.", "log-good");
+            } else {
+                this.log("Il forte vento ha rovesciato la bacinella d'acqua piovana.", "log-system");
+            }
+        } 
+        // Caso 2: Meteo secco/sereno (Raccolta da Condensa)
+        else {
+            // Consumo energetico maggiore per via del lavoro manuale/distillatore
+            this.gameState.foodLevel = Math.max(0, this.gameState.foodLevel - 4);
+            this.gameState.waterLevel = Math.max(0, this.gameState.waterLevel - 4);
+
+            // Probabilità di successo inferiore rispetto alla pioggia reale
+            if (Math.random() < 0.35) {
+                this.gameState.inventory.waterRations++;
+                this.log("🧪 Raccolta ACQUA DA CONDENSA riuscita tramite il distillatore solare.", "log-good");
+            } else {
+                this.log("Tentativo a vuoto, l'umidità dell'aria è troppo bassa per creare condensa.", "log-system");
+            }
         }
         this.updateUI();
     }
 
-    // --- FIX STRUTTURALE: Riparazione bloccata se l'integrità è al 100% ---
     actionUseKit() {
         if(this.gameState.isFloatingInWater) return;
         
