@@ -56,7 +56,7 @@
             font-weight: bold;
         }
 
-        /* Barra di Progresso del Giorno (Durata: 10 Minuti Reali) */
+        /* Barra di Progresso del Giorno */
         #day-progress-container {
             width: 100%;
             background-color: #0f172a;
@@ -87,7 +87,7 @@
             transition: background-color 1s ease;
         }
 
-        /* Banner per Eventi Casuali (Navi/Aerei) */
+        /* Banner per Eventi Casuali */
         #event-banner {
             background-color: #7f1d1d;
             color: #fef08a;
@@ -118,7 +118,7 @@
             font-weight: bold;
         }
 
-        /* Barre Grafiche di monitoraggio per Fame e Sete */
+        /* Barre Grafiche */
         .bar-container {
             width: 100%;
             background: #334155;
@@ -142,7 +142,7 @@
             animation: blink 1s infinite;
         }
 
-        /* Registro di Bordo / Log di Gioco */
+        /* Registro di Bordo */
         #log-panel {
             height: 180px;
             background-color: #020617;
@@ -165,7 +165,7 @@
         .log-system { color: #38bdf8; }
         .log-event { color: #facc15; font-weight: bold; }
 
-        /* Pannello Pulsanti di Interazione */
+        /* Pannello Pulsanti */
         #actions-panel {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -194,7 +194,6 @@
             cursor: not-allowed;
         }
 
-        /* Footer con crediti d'autore richiesti */
         footer {
             text-align: center;
             font-size: 0.75rem;
@@ -231,7 +230,8 @@
     <!-- Indicatori Statistici -->
     <div id="status-grid">
         <div class="status-item">Salute: <span id="stat-health">100</span>%</div>
-        <div class="status-item">Integrità Gonfiabile Giallo: <span id="stat-raft">100</span>%</div>
+        <!-- AGGIORNATO: Integrità Gonfiabile senza la parola 'giallo' -->
+        <div class="status-item">Integrità Gonfiabile: <span id="stat-raft">100</span>%</div>
         
         <div class="status-item" style="grid-column: span 2; margin-top: 5px;">Idratazione: <span id="stat-water-level">100</span>%</div>
         <div class="bar-container"><div id="bar-water" class="bar-fill"></div></div>
@@ -239,17 +239,18 @@
         <div class="status-item" style="grid-column: span 2;">Fame: <span id="stat-food-level">100</span>%</div>
         <div class="bar-container"><div id="bar-food" class="bar-fill"></div></div>
 
+        <!-- AGGIORNATO: Kit sopravvivenza inserito sotto -->
         <div class="status-item" style="grid-column: span 2; color: #facc15; border-top: 1px solid #334155; padding-top: 10px; margin-top: 5px; font-size: 0.85rem;">
             SCORTE CONSERVATE: <span id="inv-water">10</span> / 20 Acqua | <span id="inv-food">14</span> Cibo
         </div>
         <div class="status-item" style="grid-column: span 2; color: #94a3b8; font-size: 0.75rem;">
-            SEGNALAZIONE: Razzi di Soccorso rimasti (<span id="inv-flares">3</span>)
+            Kit sopravvivenza: Razzi di Soccorso rimasti (<span id="inv-flares">3</span>)
         </div>
     </div>
 
-    <!-- Diario di Bordo Energetico -->
+    <!-- Diario di Bordo -->
     <div id="log-panel">
-        <div class="log-entry log-system">SISTEMA: Sei alla deriva sul gonfiabile giallo di salvataggio. Patch 1.2 installata: corretto algoritmo di coerenza meteo giorno/notte.</div>
+        <div class="log-entry log-system">SISTEMA: Sei alla deriva sul gonfiabile di salvataggio. Gestisci le risorse e tieni d'occhio l'orizzonte!</div>
     </div>
 
     <!-- Pannello di Controllo Azioni -->
@@ -287,8 +288,8 @@ class IdleRealTimeSurvival {
             'tempesta': { name: "TEMPESTA ⛈️", color: "#7f1d1d", waterBurn: 0.05, foodBurn: 0.08, fishChance: 0.1, rainChance: 0.9, flareSuccess: 0.01 }
         };
 
-        this.dayDuration = 600000;  // 1 Giorno = 10 minuti reali
-        this.tickRate = 2000;       // Aggiornamento logico ogni 2 secondi
+        this.dayDuration = 600000;  
+        this.tickRate = 2000;       
         this.elapsedInDay = 0;
         this.loopInterval = null;
     }
@@ -297,7 +298,7 @@ class IdleRealTimeSurvival {
         this.gameState.currentWeather = 'sereno';
         this.updateUI();
         this.loopInterval = setInterval(() => this.gameTick(), this.tickRate);
-        this.log("Kit medico e razioni verificate sul gonfiabile. Buona fortuna.", "log-system");
+        this.log("Risorse e kit sopravvivenza verificati sul gonfiabile. Buona fortuna.", "log-system");
     }
 
     log(message, type = '') {
@@ -315,7 +316,6 @@ class IdleRealTimeSurvival {
             return;
         }
 
-        // Avanzamento temporale
         this.elapsedInDay += this.tickRate;
         
         let ratio = this.elapsedInDay / this.dayDuration;
@@ -323,19 +323,16 @@ class IdleRealTimeSurvival {
         this.gameState.hour = Math.floor(totalMinutesInDay / 60);
         this.gameState.minute = Math.floor(totalMinutesInDay % 60);
 
-        // Calcolo della fascia oraria testuale
         this.calculateTimePhase();
 
         const progressPercent = ratio * 100;
         document.getElementById('day-progress-bar').style.width = `${progressPercent}%`;
 
-        // Se scatta la sera/notte mentre c'era il sole torrido, forziamo il reset a sereno (stellato)
         if ((this.gameState.phase === 'SERA' || this.gameState.phase === 'NOTTE') && this.gameState.currentWeather === 'torrido') {
             this.gameState.currentWeather = 'sereno';
             this.log(`🌙 IL SOLE TRAMONTA: Il caldo soffocante lascia spazio alla fresca aria serale.`, "log-system");
         }
 
-        // Consumo dinamico costante
         const weather = this.weatherTypes[this.gameState.currentWeather];
         const timeStressModifier = 1 + (this.gameState.day * 0.05); 
 
@@ -345,7 +342,6 @@ class IdleRealTimeSurvival {
         if (this.gameState.foodLevel <= 0) this.gameState.health = Math.max(0, this.gameState.health - 0.4);
         if (this.gameState.waterLevel <= 0) this.gameState.health = Math.max(0, this.gameState.health - 0.8);
 
-        // Deterioramento del tessuto del gonfiabile giallo
         if (this.gameState.currentWeather === 'tempesta') {
             this.gameState.raftIntegrity = Math.max(0, this.gameState.raftIntegrity - 0.18);
         } else {
@@ -355,16 +351,14 @@ class IdleRealTimeSurvival {
         if (this.gameState.health <= 0 || this.gameState.raftIntegrity <= 0) {
             this.gameState.health = 0;
             this.gameState.gameOver = true;
-            this.log(`💀 NAUFRAGIO FATALE: Il gonfiabile è affondato o sei svenuto durante la fascia di ${this.gameState.phase} del Giorno ${this.gameState.day}.`, "log-bad");
+            this.log(`💀 NAUFRAGIO FATALE: Il gonfiabile ha ceduto o sei svenuto durante la fascia di ${this.gameState.phase} del Giorno ${this.gameState.day}.`, "log-bad");
             this.updateUI();
             return;
         }
 
-        // --- FIX BUG METEO: CAMBI METEO DINAMICI COERENTI ---
         if (Math.random() < 0.02) {
             let disponibili = Object.keys(this.weatherTypes);
             
-            // Se è sera o notte, rimuoviamo "torrido" dall'array dei meteo pescabili
             if (this.gameState.phase === 'SERA' || this.gameState.phase === 'NOTTE') {
                 disponibili = disponibili.filter(key => key !== 'torrido');
             }
@@ -383,12 +377,11 @@ class IdleRealTimeSurvival {
                 
                 if (nuovoMeteo === 'pioggia') {
                     this.gameState.inventory.waterRations = Math.min(20, this.gameState.inventory.waterRations + 1);
-                    this.log("Hai steso il telone cerato giallo raccogliendo +1 Acqua.", "log-good");
+                    this.log("Hai steso il telone cerato raccogliendo +1 Acqua.", "log-good");
                 }
             }
         }
 
-        // Gestione timer evento soccorso
         if (this.gameState.activeRescueEvent) {
             this.gameState.eventTimeLeft -= this.tickRate;
             if (this.gameState.eventTimeLeft <= 0) {
@@ -397,7 +390,6 @@ class IdleRealTimeSurvival {
             }
         }
 
-        // Scatto del nuovo giorno
         if (this.elapsedInDay >= this.dayDuration) {
             this.elapsedInDay = 0;
             this.gameState.day++;
@@ -456,7 +448,6 @@ class IdleRealTimeSurvival {
         const weather = this.weatherTypes[this.gameState.currentWeather];
         const banner = document.getElementById('weather-banner');
         
-        // Visualizzazione dinamica del nome del meteo sereno a seconda dell'orario
         let testoMeteo = weather.name;
         if (this.gameState.currentWeather === 'sereno' && (this.gameState.phase === 'SERA' || this.gameState.phase === 'NOTTE')) {
             testoMeteo = weather.nightName;
