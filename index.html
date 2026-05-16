@@ -1,1 +1,355 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zombie Open World Survival</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #111;
+            font-family: monospace;
+        }
+        canvas {
+            display: block;
+        }
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 5px;
+            pointer-events: none;
+        }
+        .bar {
+            width: 150px;
+            height: 15px;
+            background: #444;
+            margin-bottom: 5px;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        #hp-bar { width: 100%; height: 100%; background: #ff4d4d; transition: width 0.1s; }
+        #energy-bar { width: 100%; height: 100%; background: #4da6ff; transition: width 0.1s; }
+    </style>
+</head>
+<body>
 
+    <div id="ui">
+        <h2>STAZIONE DI SOPRAVVIVENZA</h2>
+        <p>Coordinate: X: <span id="ui-x">0</span> | Y: <span id="ui-y">0</span></p>
+        <div>Salute:</div>
+        <div class="bar"><div id="hp-bar"></div></div>
+        <div>Energia:</div>
+        <div class="bar"><div id="energy-bar"></div></div>
+        <p>Zombie Eliminati: <span id="ui-score">0</span></p>
+        <p><small>WASD per muoverti | Click per sparare</small></p>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+
+// Ridimensiona il canvas a tutto schermo
+function resizeCanvas() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// --- CONFIGURAZIONE GIOCO ---
+const TILE_SIZE = 64; // Dimensione di ogni blocco del terreno
+const WORLD_SEED = Math.random() * 10000;
+
+// Stati del Giocatore
+const player = {
+    x: 0, // Posizione nel mondo (in pixel)
+    y: 0,
+    speed: 4,
+    hp: 100,
+    maxHp: 100,
+    energy: 100,
+    maxEnergy: 100,
+    score: 0,
+    angle: 0
+};
+
+// Input
+const keys = {};
+const mouse = { x: 0, y: 0, clicked: false };
+
+window.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+window.addEventListener('mousemove', e => {
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+});
+window.addEventListener('mousedown', () => mouse.clicked = true);
+window.addEventListener('mouseup', () => mouse.clicked = false);
+
+// Entità
+let zombies = [];
+let bullets = [];
+
+// --- FUNZIONE DI RUMORE PER GENERAZIONE PROCEDURALE (Pseudo-Perlin) ---
+function pseudoRandom2D(x, y) {
+    let n = Math.sin(x * 12.9898 + y * 78.233 + WORLD_SEED) * 43758.5453123;
+    return n - Math.floor(n);
+}
+
+function smoothNoise(x, y) {
+    let corners = (pseudoRandom2D(x-1, y-1) + pseudoRandom2D(x+1, y-1) + pseudoRandom2D(x-1, y+1) + pseudoRandom2D(x+1, y+1)) / 16;
+    let sides   = (pseudoRandom2D(x-1, y) + pseudoRandom2D(x+1, y) + pseudoRandom2D(x, y-1) + pseudoRandom2D(x, y+1)) / 8;
+    let center  = pseudoRandom2D(x, y) / 4;
+    return corners + sides + center;
+}
+
+function interpolatedNoise(x, y) {
+    let intX = Math.floor(x);
+    let fracX = x - intX;
+    let intY = Math.floor(y);
+    let fracY = y - intY;
+
+    let v1 = smoothNoise(intX, intY);
+    let v2 = smoothNoise(intX + 1, intY);
+    let v3 = smoothNoise(intX, intY + 1);
+    let v4 = smoothNoise(intX + 1, intY + 1);
+
+    // Interpolazione Lineare (Cosidetta per fluidità)
+    let fX = (1 - Math.cos(fracX * Math.PI)) * 0.5;
+    let fY = (1 - Math.cos(fracY * Math.PI)) * 0.5;
+
+    let i1 = v1 * (1 - fX) + v2 * fX;
+    let i2 = v3 * (1 - fX) + v4 * fX;
+
+    return i1 * (1 - fY) + i2 * fY;
+}
+
+function getTerrainType(tileX, tileY) {
+    // Genera un valore tra 0 e 1 usando ottave di rumore sparse
+    let value = interpolatedNoise(tileX * 0.1, tileY * 0.1) * 0.7 + 
+                interpolatedNoise(tileX * 0.3, tileY * 0.3) * 0.3;
+
+    if (value < 0.35) return { type: "water", color: "#1d3557", walkable: false };
+    if (value < 0.45) return { type: "sand", color: "#f1faee", walkable: true };
+    if (value < 0.75) return { type: "grass", color: "#2a9d8f", walkable: true };
+    return { type: "forest", color: "#1b4332", walkable: true };
+}
+
+// --- LOGICA DI GIOCO (UPDATE) ---
+
+let spawnTimer = 0;
+let lastShot = 0;
+
+function update() {
+    // 1. Movimento Giocatore
+    let moveX = 0;
+    let moveY = 0;
+    
+    if (keys['w'] || keys['arrowup']) moveY = -1;
+    if (keys['s'] || keys['arrowdown']) moveY = 1;
+    if (keys['a'] || keys['arrowleft']) moveX = -1;
+    if (keys['d'] || keys['arrowright']) moveX = 1;
+
+    // Normalizza vettore movimento per diagonali coerenti
+    if (moveX !== 0 && moveY !== 0) {
+        moveX *= 0.7071;
+        moveY *= 0.7071;
+    }
+
+    let nextX = player.x + moveX * player.speed;
+    let nextY = player.y + moveY * player.speed;
+
+    // Controllo collisione elementare con il terreno (Water check)
+    let currentTileX = Math.floor((nextX + canvas.width/2) / TILE_SIZE);
+    let currentTileY = Math.floor((nextY + canvas.height/2) / TILE_SIZE);
+    let terrain = getTerrainType(currentTileX, currentTileY);
+
+    if (terrain.walkable) {
+        player.x = nextX;
+        player.y = nextY;
+    }
+
+    // Calcolo angolo rotazione del giocatore verso il mouse
+    let screenPlayerX = canvas.width / 2;
+    let screenPlayerY = canvas.height / 2;
+    player.angle = Math.atan2(mouse.y - screenPlayerY, mouse.x - screenPlayerX);
+
+    // 2. Sparo
+    if (mouse.clicked && Date.now() - lastShot > 250) {
+        bullets.push({
+            x: player.x,
+            y: player.y,
+            vx: Math.cos(player.angle) * 10,
+            vy: Math.sin(player.angle) * 10,
+            life: 60 // Frame di durata del proiettile
+        });
+        lastShot = Date.now();
+    }
+
+    // Aggiorna Proiettili
+    bullets = bullets.filter(b => {
+        b.x += b.vx;
+        b.y += b.vy;
+        b.life--;
+        return b.life > 0;
+    });
+
+    // 3. Spawna Zombie fuori dallo schermo
+    spawnTimer++;
+    if (spawnTimer > 100 && zombies.length < 30) {
+        let spawnAngle = Math.random() * Math.PI * 2;
+        let dist = Math.max(canvas.width, canvas.height) / 2 + 100;
+        zombies.push({
+            x: player.x + Math.cos(spawnAngle) * dist,
+            y: player.y + Math.sin(spawnAngle) * dist,
+            speed: 1.5 + Math.random() * 1.5,
+            hp: 2
+        });
+        spawnTimer = 0;
+    }
+
+    // Aggiorna Zombie
+    zombies.forEach((zombie, zIdx) => {
+        let dx = player.x - zombie.x;
+        let dy = player.y - zombie.y;
+        let dist = Math.sqrt(dx*dx + dy*dy);
+
+        // Inseguimento
+        if (dist > 0) {
+            zombie.x += (dx / dist) * zombie.speed;
+            zombie.y += (dy / dist) * zombie.speed;
+        }
+
+        // Collisione Zombie vs Giocatore
+        if (dist < 20) {
+            player.hp -= 0.2; // Danno continuo nel tempo
+        }
+
+        // Collisione Proiettili vs Zombie
+        bullets.forEach((bullet, bIdx) => {
+            let bDx = bullet.x - zombie.x;
+            let bDy = bullet.y - zombie.y;
+            let bDist = Math.sqrt(bDx*bDx + bDy*bDy);
+            if (bDist < 20) {
+                zombie.hp--;
+                bullet.life = 0; // Distruggi proiettile
+                if (zombie.hp <= 0) {
+                    player.score++;
+                }
+            }
+        });
+    });
+
+    // Filtra zombie morti
+    zombies = zombies.filter(z => z.hp > 0);
+
+    // Autorigenerazione minima di energia
+    if (player.hp < player.maxHp) player.hp += 0.01; 
+
+    // Aggiorna UI del DOM
+    document.getElementById("ui-x").innerText = Math.floor(player.x);
+    document.getElementById("ui-y").innerText = Math.floor(player.y);
+    document.getElementById("ui-score").innerText = player.score;
+    document.getElementById("hp-bar").style.width = `${Math.max(0, player.hp)}%`;
+}
+
+// --- RENDERING (DRAW) ---
+function draw() {
+    // Svuota schermo
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Calcolo offset della telecamera centrata sul giocatore
+    let camX = player.x - canvas.width / 2;
+    let camY = player.y - canvas.height / 2;
+
+    // 1. Disegna il terreno infinito visibile nella viewport
+    let startTileX = Math.floor(camX / TILE_SIZE);
+    let endTileX = Math.ceil((camX + canvas.width) / TILE_SIZE);
+    let startTileY = Math.floor(camY / TILE_SIZE);
+    let endTileY = Math.ceil((camY + canvas.height) / TILE_SIZE);
+
+    for (let x = startTileX; x <= endTileX; x++) {
+        for (let y = startTileY; y <= endTileY; y++) {
+            let terrain = getTerrainType(x, y);
+            ctx.fillStyle = terrain.color;
+            // Traduci coordinate del mondo in coordinate dello schermo
+            let screenX = x * TILE_SIZE - camX;
+            let screenY = y * TILE_SIZE - camY;
+            ctx.fillRect(screenX, screenY, TILE_SIZE + 0.5, TILE_SIZE + 0.5); // +0.5 evita glitch di linee nere
+        }
+    }
+
+    // 2. Disegna Proiettili
+    ctx.fillStyle = "#ffeb3b";
+    bullets.forEach(b => {
+        ctx.beginPath();
+        ctx.arc(b.x - camX, b.y - camY, 4, 0, Math.PI * 2);
+        ctx.fill();
+    });
+
+    // 3. Disegna gli Zombie
+    zombies.forEach(zombie => {
+        ctx.fillStyle = "#a7c957";
+        ctx.strokeStyle = "#386641";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(zombie.x - camX, zombie.y - camY, 15, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+    });
+
+    // 4. Disegna il Giocatore (Sempre al centro dello schermo)
+    ctx.save();
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.rotate(player.angle);
+    
+    // Corpo personaggio
+    ctx.fillStyle = "#d62828";
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, 18, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Arma (Direzione dello sguardo)
+    ctx.fillStyle = "#333";
+    ctx.fillRect(10, -4, 15, 8);
+
+    ctx.restore();
+
+    // Game Over Condizionale
+    if (player.hp <= 0) {
+        ctx.fillStyle = "rgba(0,0,0,0.8)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#ff4d4d";
+        ctx.font = "48px monospace";
+        ctx.textAlign = "center";
+        ctx.fillText("SEI STATO INFETTATO", canvas.width / 2, canvas.height / 2);
+        ctx.font = "24px monospace";
+        ctx.fillStyle = "#fff";
+        ctx.fillText(`Punteggio finale: ${player.score} Zombie eliminati`, canvas.width / 2, canvas.height / 2 + 50);
+        return;
+    }
+}
+
+// --- GAME LOOP INTERNO ---
+function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+}
+
+// Avvia il gioco
+loop();
+</script>
+</body>
+</html>
