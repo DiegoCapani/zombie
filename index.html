@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Disperso in Mare - REAL TIME Survival</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        body {
+            background-color: #0b1d28;
+            color: #e0f2fe;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 10px;
+        }
+
+        #game-container {
+            width: 100%;
+            max-width: 600px;
+            background-color: #152e3d;
+            border: 3px solid #facc15;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        header {
+            text-align: center;
+            border-bottom: 2px solid #334155;
+            padding-bottom: 10px;
+        }
+
+        h1 {
+            color: #facc15;
+            font-size: 1.4rem;
+            text-transform: uppercase;
+        }
+
+        /* Barra del tempo reale che si svuota */
+        #day-progress-container {
+            width: 100%;
+            background-color: #0f172a;
+            height: 8px;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+
+        #day-progress-bar {
+            width: 0%;
+            height: 100%;
+            background-color: #38bdf8;
+            transition: width 0.1s linear;
+        }
+
+        #weather-banner {
+            background-color: #1e293b;
+            color: #38bdf8;
+            padding: 8px;
+            text-align: center;
+            font-size: 0.95rem;
+            font-weight: bold;
+            border-radius: 6px;
+            text-transform: uppercase;
+        }
+
+        #status-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            background: #0f172a;
+            padding: 12px;
+            border-radius: 8px;
+        }
+
+        .status-item {
+            font-size: 0.9rem;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        /* Barre Visive per la Fame/Sete in tempo reale */
+        .bar-container {
+            width: 100%;
+            background: #334155;
+            height: 6px;
+            border-radius: 3px;
+            margin-top: 3px;
+            grid-column: span 2;
+        }
+        .bar-fill {
+            height: 100%;
+            background: #4ade80;
+            width: 100%;
+            transition: width 0.3s ease;
+        }
+        .bar-fill.warning { background: #ef4444; }
+
+        #log-panel {
+            height: 160px;
+            background-color: #020617;
+            border-left: 4px solid #facc15;
+            padding: 10px;
+            overflow-y: auto;
+            font-size: 0.85rem;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .log-entry {
+            border-bottom: 1px solid #1e293b;
+            padding-bottom: 4px;
+        }
+        .log-good { color: #4ade80; }
+        .log-bad { color: #f87171; }
+        .log-system { color: #38bdf8; }
+
+        #actions-panel {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        button {
+            background-color: #1e3a8a;
+            color: white;
+            border: none;
+            padding: 12px;
+            font-size: 0.85rem;
+            font-weight: bold;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+        button:disabled {
+            background-color: #334155;
+            color: #64748b;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <header>
+        <h1>GIORNO <span id="day-count">1</span> (Tempo Reale)</h1>
+        <div id="day-progress-container"><div id="day-progress-bar"></div></div>
+    </header>
+
+    <div id="weather-banner">Meteo: Inizializzazione...</div>
+
+    <!-- Risorse -->
+    <div id="status-grid">
+        <div class="status-item">Salute: <span id="stat-health">100</span>%</div>
+        <div class="status-item">Integrità Zattera: <span id="stat-raft">100</span>%</div>
+        
+        <div class="status-item" style="grid-column: span 2; margin-top: 5px;">Idratazione: <span id="stat-water-level">100</span>%</div>
+        <div class="bar-container"><div id="bar-water" class="bar-fill"></div></div>
+
+        <div class="status-item" style="grid-column: span 2;">Fame: <span id="stat-food-level">100</span>%</div>
+        <div class="bar-container"><div id="bar-food" class="bar-fill"></div></div>
+
+        <div class="status-item" style="grid-column: span 2; color: #facc15; border-top: 1px solid #334155; padding-top: 8px; margin-top: 5px;">
+            Scorte: <span id="inv-water">10</span> Acqua | <span id="inv-food">14</span> Cibo | Razzi: <span id="inv-flares">3</span>
+        </div>
+    </div>
+
+    <!-- Diario -->
+    <div id="log-panel">
+        <div class="log-entry log-system">IL TEMPO SCORRE! Ogni 5 secondi passa un giorno. Se non fai nulla, morirai di fame e sete in tempo reale.</div>
+    </div>
+
+    <!-- Azioni Istantanee -->
+    <div id="actions-panel">
+        <button onclick="game.actionEat()">Mangia (-1 Scorta)</button>
+        <button onclick="game.actionDrink()">Bevi (-1 Scorta)</button>
+        <button onclick="game.actionFish()">Pesca Ora</button>
+        <button onclick="game.actionCollectWater()">Raccogli Piovana</button>
+        <button onclick="game.actionUseKit()">Rippara Zattera</button>
+        <button onclick="game.actionSignal()">Spara Razzo</button>
+    </div>
+</div>
+
+<script>
+class RealTimeSurvival {
+    constructor() {
+        this.gameState = {
+            day: 1, health: 100, waterLevel: 100, foodLevel: 100, raftIntegrity: 100,
+            currentWeather: 'sereno',
+            inventory: { waterRations: 10, foodRations: 14, flares: 3 },
+            gameOver: false
+        };
+
+        this.weatherTypes = {
+            'sereno': { name: "Mare Sereno ☀️", color: "#1e293b", waterBurn: 15, foodBurn: 12, fishChance: 0.5, rainChance: 0.1, flareSuccess: 0.15 },
+            'torrido': { name: "Sole Torrido 🥵", color: "#b45309", waterBurn: 28, foodBurn: 8, fishChance: 0.3, rainChance: 0.0, flareSuccess: 0.20 },
+            'pioggia': { name: "Pioggia Battente 🌧️", color: "#1d4ed8", waterBurn: 10, foodBurn: 18, fishChance: 0.4, rainChance: 0.8, flareSuccess: 0.05 },
+            'tempesta': { name: "TEMPESTA ⛈️", color: "#7f1d1d", waterBurn: 15, foodBurn: 22, fishChance: 0.1, rainChance: 0.9, flareSuccess: 0.01 }
+        };
+
+        this.dayDuration = 5000; // 5000 millisecondi = 5 secondi reali per fare un giorno
+        this.elapsedInDay = 0;
+        this.loopInterval = null;
+    }
+
+    init() {
+        this.updateUI();
+        // Avvia il motore del tempo reale: gira ogni 100ms per aggiornare le barre in modo fluido
+        this.loopInterval = setInterval(() => this.gameTick(), 100);
+    }
+
+    log(message, type = '') {
+        const logPanel = document.getElementById('log-panel');
+        const entry = document.createElement('div');
+        entry.className = `log-entry ${type}`;
+        entry.innerText = message;
+        logPanel.appendChild(entry);
+        logPanel.scrollTop = logPanel.scrollHeight;
+    }
+
+    // --- IL CUORE DEL TEMPO REALE ---
+    gameTick() {
+        if (this.gameState.gameOver) {
+            clearInterval(this.loopInterval);
+            return;
+        }
+
+        // Avanzamento della barra del giorno corrente
+        this.elapsedInDay += 100;
+        const progressPercent = (this.elapsedInDay / this.dayDuration) * 100;
+        document.getElementById('day-progress-bar').style.width = `${progressPercent}%`;
+
+        // OGNI 5 SECONDI SCATTA IL NUOVO GIORNO
+        if (this.elapsedInDay >= this.dayDuration) {
+            this.elapsedInDay = 0;
+            this.nextDayLogic();
+        }
+    }
+
+    // Questa funzione viene eseguita AUTOMATICAMENTE dal tempo ogni 5 secondi
+    nextDayLogic() {
+        const weather = this.weatherTypes[this.gameState.currentWeather];
+        
+        // Calcolo dello stress del tempo (più vai avanti, più consumi passivamente)
+        const timeStress = Math.floor(this.gameState.day * 0.4);
+
+        // IL CONSUMO PASSIVO AVVIENE QUI (SE NON FAI NULLA, CALA)
+        this.gameState.foodLevel = Math.max(0, this.gameState.foodLevel - (weather.foodBurn + timeStress));
+        this.gameState.waterLevel = Math.max(0, this.gameState.waterLevel - (weather.waterBurn + timeStress));
+
+        // Danni da sfinimento passivo
+        if (this.gameState.foodLevel === 0) this.gameState.health -= 10;
+        if (this.gameState.waterLevel === 0) this.gameState.health -= 18;
+
+        // Logoramento della zattera nel tempo
+        const raftUsury = Math.floor(this.gameState.day * 0.3) + (this.gameState.currentWeather === 'tempesta' ? 15 : 0);
+        this.gameState.raftIntegrity = Math.max(0, this.gameState.raftIntegrity - raftUsury);
+
+        // Controllo Morti
+        if (this.gameState.raftIntegrity <= 0 || this.gameState.health <= 0) {
+            this.gameState.health = 0;
+            this.gameState.gameOver = true;
+            this.log("⚠️ SEI MORTO. Gli elementi dell'oceano e il tempo hanno vinto.", "log-bad");
+            this.updateUI();
+            return;
+        }
+
+        // Cambio Meteo e Giorno
+        this.gameState.day++;
+        this.log(`Giorno ${this.gameState.day}: Le tue costanti vitali sono calate.`, "log-system");
+        
+        // Cambia meteo casualmente
+        const keys = Object.keys(this.weatherTypes);
+        this.gameState.currentWeather = keys[Math.floor(Math.random() * keys.length)];
+
+        this.updateUI();
+    }
+
+    updateUI() {
+        document.getElementById('day-count').innerText = this.gameState.day;
+        document.getElementById('stat-health').innerText = this.gameState.health;
+        document.getElementById('stat-raft').innerText = this.gameState.raftIntegrity;
+        document.getElementById('stat-water-level').innerText = this.gameState.waterLevel;
+        document.getElementById('stat-food-level').innerText = this.gameState.foodLevel;
+        
+        document.getElementById('inv-water').innerText = this.gameState.inventory.waterRations;
+        document.getElementById('inv-food').innerText = this.gameState.inventory.foodRations;
+        document.getElementById('inv-flares').innerText = this.gameState.inventory.flares;
+
+        // Aggiorna riempimento barre grafiche
+        const wBar = document.getElementById('bar-water');
+        wBar.style.width = `${this.gameState.waterLevel}%`;
+        wBar.className = this.gameState.waterLevel < 30 ? "bar-fill warning" : "bar-fill";
+
+        const fBar = document.getElementById('bar-food');
+        fBar.style.width = `${this.gameState.foodLevel}%`;
+        fBar.className = this.gameState.foodLevel < 30 ? "bar-fill warning" : "bar-fill";
+
+        const weather = this.weatherTypes[this.gameState.currentWeather];
+        const banner = document.getElementById('weather-banner');
+        banner.innerText = `Meteo attuale: ${weather.name}`;
+        banner.style.backgroundColor = weather.color;
+
+        if (this.gameState.gameOver) {
+            document.querySelectorAll('button').forEach(b => b.disabled = true);
+        }
+    }
+
+    // --- AZIONI ISTANTANEE (Il giocatore deve cliccarle di fretta mentre il tempo scorre) ---
+    actionEat() {
+        if (this.gameState.inventory.foodRations > 0) {
+            this.gameState.inventory.foodRations--;
+            this.gameState.foodLevel = Math.min(100, this.gameState.foodLevel + 30);
+            this.updateUI();
+        }
+    }
+
+    actionDrink() {
+        if (this.gameState.inventory.waterRations > 0) {
+            this.gameState.inventory.waterRations--;
+            this.gameState.waterLevel = Math.min(100, this.gameState.waterLevel + 35);
+            this.updateUI();
+        }
+    }
+
+    actionFish() {
+        const weather = this.weatherTypes[this.gameState.currentWeather];
+        if (Math.random() < weather.fishChance) {
+            this.gameState.inventory.foodRations++;
+            this.log("🎣 Preso un pesce in tempo reale!", "log-good");
+        } else {
+            this.log("Niente da fare, la lenza è vuota.", "log-bad");
+        }
+        this.updateUI();
+    }
+
+    actionCollectWater() {
+        const weather = this.weatherTypes[this.gameState.currentWeather];
+        if (Math.random() < weather.rainChance) {
+            this.gameState.inventory.waterRations++;
+            this.log("💧 Hai raccolto acqua piovana al volo!", "log-good");
+        } else {
+            this.log("Non sta piovendo abbastanza in questo momento.", "log-bad");
+        }
+        this.updateUI();
+    }
+
+    actionUseKit() {
+        this.gameState.raftIntegrity = Math.min(100, this.gameState.raftIntegrity + 15);
+        this.log("🔧 Hai rattoppato al volo un buco nella gomma.", "log-good");
+        this.updateUI();
+    }
+
+    actionSignal() {
+        if (this.gameState.inventory.flares > 0) {
+            this.gameState.inventory.flares--;
+            const weather = this.weatherTypes[this.gameState.currentWeather];
+            if (Math.random() < weather.flareSuccess) {
+                this.log("🎉 VITTORIA! Una nave ti ha visto!", "log-good");
+                this.gameState.gameOver = true;
+            } else {
+                this.log("Il razzo si è spento. Nessuno ti ha visto.", "log-bad");
+            }
+            this.updateUI();
+        }
+    }
+}
+
+const game = new RealTimeSurvival();
+window.onload = () => game.init();
+</script>
+
+</body>
+</html>
